@@ -1,0 +1,1079 @@
+---
+title: "Calculo de inventarios de Lubia"
+author: "Nikola Geršak"
+date: "03/03/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(repos = "http://cran.us.r-project.org")
+#install packages si todavia no están en ordenador
+#install.packages("tidyverse")
+#install.packages("broom")
+#install.packages("kableExtra")
+#install.packages("sjPlot")
+
+#cargar paquetes que han estado instalados
+library(tidyverse)
+library(broom)
+library(kableExtra)
+library(sjPlot)
+options(width = 60)
+options(knitr.kable.NA = '')
+
+```
+
+```{css, echo=F}
+
+#ajustes de estilo de texto de html archivo
+p{
+  text-align: justify;
+  fig.align: center;
+}
+
+h1, h2, h3{
+  text-align: center;
+}
+
+.table-wrapper caption {
+color: black;
+text-align: center;
+font-family: Arial;
+font-weight: bold;
+font-size: xx-large;
+}
+
+```
+
+
+El primer paso fue cargar archivos en r.
+Las tablas ya había preparado y cambiado en excel antes que lo subí.
+
+```{r, warning = F, message=F}
+
+#cargar los archivos en las variablas
+Lubia <- read_csv2("INVENTARIOS_1_2_3_BDD_LUBIA_NS_cambiado.csv")
+
+#la variabla que contiene solo pinos
+Lubia %>% filter(ESPECIE == "Pinus pinaster") -> Lubia_pino
+#y variabla que contiene solo rebollo
+Lubia %>% filter(ESPECIE != "Pinus pinaster") -> Lubia_rebollo
+
+```
+
+# Primero {-}
+
+Para ver si los numeros cuadran tenía que calcular el numero de arboles por de cada parcela.
+
+*Disclaimer*: en toda la script estuve usando funcciones de `tydiverse` paquete así como *pipeline* (`%>%`) operador.
+
+
+```{r, echo=F}
+#Lubia 
+#La prueba si los numeros cuadran de pino
+Lubia_pino %>% group_by(PARCELA, `INVENTARIO`) %>% 
+  count(`TIPO MASA`) %>% 
+  pivot_wider(names_from = c(`INVENTARIO`, `TIPO MASA`), values_from = "n") -> Lubia_inventario_pino
+
+Lubia_inventario_pino %>% kbl(caption = "<center><strong>Lubia - Pino</strong></center>",escape = FALSE) %>% kable_classic()
+
+#La prueba si los numeros de rebollo cuadran
+
+Lubia_rebollo %>% 
+  group_by(PARCELA, `INVENTARIO`) %>% 
+  count(`TIPO MASA`) %>% 
+  pivot_wider(names_from = c(`INVENTARIO`, `TIPO MASA`), values_from = "n") -> Lubia_inventario_rebollo
+
+Lubia_inventario_rebollo %>% kbl(caption = "<center><strong>Lubia - Rebollo</strong></center>",escape = FALSE) %>% kable_classic()
+
+```
+
+
+# Segundo {-}
+
+Despues de eso, tengo que empezar con Calculo como en thesis de Miren en pag. 47., tabla 3.2.5.1.
+Valores medios por hectarea. Es calculado por parcelas.
+
+De archivo "Informe San pablo" he tomado los valores de superficies de parcelas. Le he ahorrado en su variabla particular.
+
+```{r}
+
+#superficies de tabla de archivo "informe Lubia ......."
+Superficie_Lubia <- c(0.079,0.085,0.080,0.076,0.081,0.078,0.083,0.081,0.081)
+
+```
+
+
+
+## Predicciones {-}
+
+Algunos valores de altura faltan y por eso tengo que predicitr y llenar las que faltan. En var1 he puesto medidas que fueron tomados en campo de altura de pino y En var3 de rebollo.
+
+Modelos lineares hice en sus proprios scripts que se llaman **Lubia_pino_1_modelos_lineares.r** y **Lubia_rebollo_1_modelos_lineares.r**. Estos dos despues he encargado en el codigo principial, de este manera el codigo principial es mas limpio y en orden.
+
+```{r, warning=F, message=F}
+
+#Tengo que llenar valores de altura que faltan con valores que voy a predecir
+#Valores que faltan
+#var1 y var3 contienen medidas que son tomados en campo de altura
+Lubia_pino %>% filter(is.na(`ALT - TOTAL`)==F) -> var1
+
+Lubia_rebollo %>% filter(is.na(`ALT - TOTAL`)==F) -> var3
+
+#modelos lineares son calculados en archivo modelos_linares.r
+#tambien las predicciones de alturas
+#los variables voy a poner en un ambiente/environment nuevo para mantener las cosas limpias
+
+e_pino <- new.env()
+source("Lubia_pino_1_modelos_lineares.r", local = e_pino)
+attach(e_pino)
+
+#llenacion de valores que faltan en Altura_pred y Altura_def, pino
+Lubia_pino %>% mutate(Altura_def = ifelse(is.na(`ALT - TOTAL`), var2$Prediccion, `ALT - TOTAL`), Altura_pred = var2$Prediccion) -> Lubia_H_pred_pino
+
+e_rebollo <- new.env()
+source("Lubia_rebollo_1_modelos_lineares.r", local = e_rebollo)
+attach(e_rebollo)
+
+#llenacion de valores que faltan en Altura_pred y Altura_def, rebollo
+#tenia que sortir variablas var4 y Lubia_rebollo porque no eran alineadas
+var4 %>% arrange(INVENTARIO, PARCELA, `NO PIE`) -> var4
+
+Lubia_rebollo %>% arrange(INVENTARIO, PARCELA, `NO PIE`) %>% mutate(Altura_def = ifelse(is.na(`ALT - TOTAL`), var4$Prediccion, `ALT - TOTAL`), Altura_pred = var4$Prediccion) -> Lubia_H_pred_rebollo
+
+```
+
+### Modelos lineares {-}
+
+Los modelos de rebollo muestro aquí, cada en su propria tabla. Cada modelo se llama de manera **linMod X Y ** donde X es numero de parcela e Y numero de inventario.
+
+```{r, echo=F}
+
+#Entonces, aqui son modeles diferentes para cada parcela (1-9)
+#las tabelas de library(sjPlot)
+tab_model(linMod11, linMod12, linMod13, show.aic = T, dv.labels = c("linMod11", "linMod12", "linMod13"))
+tab_model(linMod21, linMod22, linMod23, show.aic = T, dv.labels = c("linMod21", "linMod22", "linMod23"))
+tab_model(linMod31, linMod32, linMod33, show.aic = T, dv.labels = c("linMod31", "linMod32", "linMod33"))
+
+tab_model(linMod41, linMod42, linMod43, show.aic = T, dv.labels = c("linMod41", "linMod42", "linMod43"))
+tab_model(linMod51, linMod52, linMod53, show.aic = T, dv.labels = c("linMod51", "linMod52", "linMod53"))
+tab_model(linMod61, linMod62, linMod63, show.aic = T, dv.labels = c("linMod61", "linMod62", "linMod63"))
+
+tab_model(linMod71, linMod72, linMod73, show.aic = T, dv.labels = c("linMod71", "linMod72", "linMod73"))
+tab_model(linMod81, linMod82, linMod83, show.aic = T, dv.labels = c("linMod81", "linMod82", "linMod83"))
+tab_model(linMod91, linMod92, linMod93, show.aic = T, dv.labels = c("linMod91", "linMod92", "linMod93"))
+
+```
+
+
+
+
+
+
+## La gráfica {-}
+
+Ahora, se puede mostrar la regresion linear en un grafico. Voy a usar package ggplot2 *(de tidyverse)* para esto.
+
+Hay dos grupos de graficas que muestran: 
+
+<ol>
+
+<li> Curva de regresion, (Altura~Diametro) </li>
+<li> Residuales </li>
+
+</ol>
+
+Graficas son en sus proprios archivos porque gastan mucho espacio y retardan escript. Para ahorrar tiempo cuando estuve encendiendo script las había puesto en sus proprios archivos.
+
+Archivos se llaman: **Lubia_pino_2_grafica_diam-alt.r** y **Lubia_rebollo_2_grafica_diam-alt.r**
+
+Ejemplo de codigo de grafica.
+
+```{r, message=F, warning=F, eval=F}
+
+#tengo que cambiar EDAD en factor para hacerlo variable discrete
+Lubia_H_pred_rebollo$INVENTARIO <- as.factor(Lubia_H_pred_rebollo$INVENTARIO)
+
+#aqí es un ejemplo de grafica hecha tras ggplot2 package
+Lubia_H_pred_rebollo %>% filter(PARCELA==5) %>%  
+  ggplot(aes(x = `DIAM MED`/10, 
+             y = Altura_pred,
+             color = INVENTARIO))+
+  stat_smooth(method = lm, 
+              formula = y~log(x), 
+              se = F)+
+  geom_point(aes(shape = "any"))+
+  geom_point(aes(y = Altura_pred, 
+             shape = "one")) +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Modelo linear para Altura y Diametro medio, Parcela x Especie y") +
+  scale_y_continuous(name = "Altura / m") +
+  scale_x_continuous(name = "Diametro medio / cm") +
+  scale_color_brewer(name = "Edad", 
+                     palette = "Set1")+
+  scale_shape_manual(name = "Altura de arbol",
+                     labels = c("Medida", "predicha"),
+                     values = c(19,2))
+
+
+```
+
+### Curvas de regresiones {-}
+
+Las 9 graficas para 9 parcelas.
+
+```{r, message=F, warning=F, echo=F}
+
+#tengo que cambiar EDAD en factor para hacerlo variable discrete
+Lubia_H_pred_pino$INVENTARIO <- as.factor(Lubia_H_pred_pino$INVENTARIO)
+Lubia_H_pred_rebollo$INVENTARIO <- as.factor(Lubia_H_pred_rebollo$INVENTARIO)
+
+source("Lubia_pino_2_grafica_diam-alt.r")
+gda1
+gda2
+gda3
+gda4
+gda5
+gda6
+gda7
+gda8
+gda9
+
+source("Lubia_rebollo_2_grafica_diam-alt.r")
+gda1
+gda2
+gda3
+gda4
+gda5
+gda6
+gda7
+gda8
+gda9
+
+
+```
+
+
+### Grafica de residuos de modelos {-}
+
+Para la grafica de residuos usé el library broom para hacer el test de apropriedad. Tambien library gridExtra para poner mas graficas (3 de un modelo linear) en una unica grafica.
+
+Las graficas se tratan solo de modelos para rebollos.
+
+
+```{r, message=F, warning=F}
+
+#grafica de residuos, library broom sirve para calcular los residuos
+library(broom)
+library(gridExtra)
+
+#si no se quiere mostrar/utilizar documento de grafica de residuos se puede comentar (poner #) atras de esta fila abajo
+#source("grafica_residuos.r")
+
+
+```
+
+
+
+# Tercero - Calculo de Parcelas {-}
+
+Este documento es el principal que incluye todos los calculos de todas las parcelas (9) y todas las especies (pino, roble) de San Pablo de los montes.
+
+Abajo muestro mi codigo y calculo de parcelas.
+
+Calculos de variablas de arboles extraidos *(por ej. Dge, Ve, ABe etc.)* son hechos un poco de manera lia porque tenía que añadir campos que faltan en variable (sin esos campos no hay suficiented campos de tabla y por eso no se pueden añadir en la tabla principal)
+
+En calculo estuve usando paquetes de megapaquete `tidyverse`, eso es de gran importancia porque ese paquete ayuda y facilita hacer analisys de datos así como hacer mi codigo mas legible.
+
+### Pino - n, d, h{-}
+
+```{r, message=F, warning=F}
+
+#Numero de pies
+Lubia_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  count(`TIPO MASA`) %>% 
+  pivot_wider(names_from = c(`TIPO MASA`), values_from = "n") %>% 
+  transmute(Nac = sum(`E`,`NA`, na.rm = T), Ndc = `NA`, Ne = `E`) -> Lubia_P
+
+#Superficie
+Lubia_P$Superficie <- rep(Superficie_Lubia, each=3)
+
+#Calculo de numero de pies por hectárea
+Lubia_P[is.na(Lubia_P)] <- 0
+Lubia_P %>% mutate(Superficie = Superficie, 
+                      Nac = Nac/Superficie, 
+                      Ndc = Ndc/Superficie, 
+                      Ne = Ne/Superficie) %>% round -> Lubia_P
+
+#Superficie una vez mas porque se perdió por funccion round
+Lubia_P$Superficie <- rep(Superficie_Lubia, each=3)
+
+#funccion para calcular diametro cuadratico
+dg <- function(d) {
+  x <- sqrt(mean(d^2, na.rm = T))
+  x
+}
+
+#Dgac
+Lubia_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Dgac = dg(`DIAM MED`/10)) %>% 
+  ungroup %>% select(Dgac) %>% unlist -> Lubia_P$Dgac
+
+#Dgdc, en diametro cuadratico despues de clara son incorporados arboles nuevos
+Lubia_pino %>% 
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Dgdc = dg(`DIAM MED`/10)) %>% 
+  ungroup %>% select(Dgdc) %>% unlist -> Lubia_P$Dgdc
+
+#Dge
+#primero he hecho la variabla en Lubia_H_pred_pino que contuvo solo diametros de arboles extraidos, de este manera es mas facil y limpio calcular medidas extraidos después
+Lubia_H_pred_pino %>% 
+  mutate(Diam_e = ifelse(`TIPO MASA`=="E", `DIAM MED`, NA)) -> Lubia_H_pred_pino
+
+#calculo de Dge
+Lubia_H_pred_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Dge = dg(Diam_e/10)) %>% 
+  ungroup %>% select(Dge) %>% unlist -> Lubia_P$Dge
+
+#Doac, para eso tomé los 7 arboles mas gruesos de cada parcela porque la superficie es menos que 0.7 ha en promedio
+Lubia_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  slice_max(n=7, order_by = `DIAM MED`) %>% 
+  summarise(Doac = mean(`DIAM MED`/10)) %>% 
+  ungroup %>% select(Doac) %>% unlist -> Lubia_P$Doac
+
+#Dodc, estoy usando la funccion slice_max de paquete dplyr 
+Lubia_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  slice_max(n=7, order_by = `DIAM MED`) %>% 
+  summarise(Dodc = mean(`DIAM MED`/10)) %>% 
+  ungroup %>% select(Dodc) %>% unlist -> Lubia_P$Dodc
+
+#Hgac, calculé alturas de Altura_def (variabla que contiene alturas medidas y predichas)
+Lubia_H_pred_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Hgac = mean(Altura_def)) %>% 
+  ungroup %>% select(Hgac) %>% unlist -> Lubia_P$Hgac
+
+#Hgdc
+Lubia_H_pred_pino %>% 
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Hgdc = mean(Altura_def, na.rm = T)) %>% 
+  ungroup %>% select(Hgdc) %>% unlist -> Lubia_P$Hgdc
+
+#Hge
+#lo mismo como Dge, primero añadí una variabla en Lubia_H_pred_pino
+Lubia_H_pred_pino %>% 
+  mutate(Altura_e = ifelse(`TIPO MASA`=="E", Altura_def, NA)) -> Lubia_H_pred_pino
+
+Lubia_H_pred_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Hge = mean(Altura_e, na.rm = T)) %>% 
+  ungroup %>% select(Hge) %>% unlist -> Lubia_P$Hge
+
+#Hoac
+Lubia_H_pred_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  slice_max(n=7, order_by = `DIAM MED`) %>% 
+  summarise(Hoac = mean(Altura_def, na.rm = T)) %>% 
+  ungroup %>% select(Hoac) %>% unlist -> Lubia_P$Hoac
+
+#Hodc
+Lubia_H_pred_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  slice_max(n=7, order_by = `DIAM MED`) %>% 
+  summarise(Hodc = mean(Altura_def, na.rm = T)) %>% 
+  ungroup %>% select(Hodc) %>% unlist -> Lubia_P$Hodc
+
+```
+
+### Rebollo - n,d,h {-}
+
+
+```{r, message=F, warning= F}
+#Calculo de rebollos de San Pablo de montes
+
+#Numero de pies
+Lubia_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  count(`TIPO MASA`) %>% 
+  pivot_wider(names_from = c(`TIPO MASA`), values_from = "n") %>% 
+  transmute(Nac = sum(`E`,`NA`, na.rm = T), Ndc = sum(`NA`, `N`, na.rm=T), Ne = `E`, Nn = `N`) -> Lubia_R
+
+#Superficie
+Lubia_R$Superficie <- rep(Superficie_Lubia, each=3)[c(-29,-32,-33)]
+
+#Calculo de numero de pies por hectárea
+Lubia_R[is.na(Lubia_R)] <- 0
+Lubia_R %>% transmute(Superficie = Superficie, 
+                         Nac = Nac/Superficie, 
+                         Ndc = Ndc/Superficie, 
+                         Ne = Ne/Superficie,
+                         Nn = Nn/Superficie) %>% round -> Lubia_R
+
+#Superficie una vez mas porque se perdió por funccion round
+Lubia_R$Superficie <- rep(Superficie_Lubia, each=3)[c(-29,-32,-33)]
+
+#Dgac
+Lubia_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Dgac = dg(`DIAM MED`)/10) %>% 
+  ungroup %>% select(Dgac) %>% unlist -> Lubia_R$Dgac
+
+#Dgdc
+Lubia_rebollo %>% 
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Dgdc = dg(`DIAM MED`/10)) %>% 
+  ungroup %>% select(Dgdc) %>% unlist -> Lubia_R$Dgdc
+
+#Dge
+#Diam_e
+Lubia_H_pred_rebollo %>% 
+  mutate(Diam_e = ifelse(`TIPO MASA`=="E", `DIAM MED`, NA)) -> Lubia_H_pred_rebollo
+
+Lubia_H_pred_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Dge = dg(Diam_e/10)) %>% 
+  ungroup %>% select(Dge) %>% unlist -> Lubia_R$Dge
+
+#Doac
+Lubia_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  slice_max(n=7, order_by = `DIAM MED`) %>% 
+  summarise(Doac = mean(`DIAM MED`/10)) %>% 
+  ungroup %>% select(Doac) %>% unlist -> Lubia_R$Doac
+
+#Dodc
+Lubia_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  slice_max(n=7, order_by = `DIAM MED`) %>% 
+  summarise(Dodc = mean(`DIAM MED`/10)) %>% 
+  ungroup %>% select(Dodc) %>% unlist -> Lubia_R$Dodc
+
+#Hgac
+Lubia_H_pred_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Hgac = mean(`ALT - TOTAL`, na.rm = T)) %>% 
+  ungroup %>% select(Hgac) %>% unlist -> Lubia_R$Hgac
+
+#Hgdc
+Lubia_H_pred_rebollo %>% 
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Hgdc = mean(`ALT - TOTAL`, na.rm = T)) %>% 
+  ungroup %>% select(Hgdc) %>% unlist -> Lubia_R$Hgdc
+
+#Hge
+#Altura_e
+Lubia_H_pred_rebollo %>% 
+  mutate(Altura_e = ifelse(`TIPO MASA`=="E", Altura_def, NA)) -> Lubia_H_pred_rebollo
+
+Lubia_H_pred_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Hge = mean(Altura_e, na.rm = T)) %>% 
+  ungroup %>% select(Hge) %>% unlist -> Lubia_R$Hge
+
+#Hoac
+Lubia_H_pred_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  slice_max(n=7, order_by = `DIAM MED`) %>% 
+  summarise(Hoac = mean(`ALT - TOTAL`, na.rm = T)) %>% 
+  ungroup %>% select(Hoac) %>% unlist -> Lubia_R$Hoac
+
+#Hodc
+Lubia_H_pred_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  slice_max(n=7, order_by = `DIAM MED`) %>% 
+  summarise(Hodc = mean(`ALT - TOTAL`, na.rm = T)) %>%
+  ungroup %>% select(Hodc) %>% unlist  -> Lubia_R$Hodc
+
+```
+
+
+
+
+## Area basimetrica y Volumen {-}
+
+Entonces, voy a calcular área basimétrica y volumen.
+
+### Area basimetrica {-}
+
+Area basimetrica de cada arbol estuve calculada segun la formula.
+
+$$g_i=\frac{\pi}{4}*d_i^2$$
+
+
+### Pino - g {-}
+
+
+```{r, message=F, warning=F}
+
+#funccion para calcular area basimetrica
+g <- function(d){
+  x <- ((d/1000)^2)*(pi/4)
+  x
+}
+
+#calculo de AB para cada arbol
+Lubia_H_pred_pino %>% 
+  mutate(AreaBasimetrica = g(`DIAM MED`)) %>% 
+  mutate(AreaBasimetrica_e = ifelse(`TIPO MASA`=="E", AreaBasimetrica, NA)) -> Lubia_H_pred_pino
+
+#ABac
+Lubia_H_pred_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(ABac = sum(AreaBasimetrica)) %>% 
+  ungroup %>% select(ABac) %>% unlist -> Lubia_P$ABac
+
+#ABdc
+Lubia_H_pred_pino %>% 
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(ABdc = sum(AreaBasimetrica)) %>% 
+  ungroup %>% select(ABdc) %>% unlist -> Lubia_P$ABdc
+
+#ABe
+Lubia_H_pred_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(ABe = sum(AreaBasimetrica_e, na.rm = T)) %>% 
+  ungroup %>% select(ABe) %>% unlist -> Lubia_P$ABe
+
+#ABac, ABdc, ABe
+Lubia_P %>% mutate(ABac = ABac/Superficie, 
+                      ABdc = ABdc/Superficie, 
+                      ABe = ABe/Superficie) -> Lubia_P
+
+#ABT
+Lubia_P %>% group_by(PARCELA) %>% 
+  mutate(ABT = ABac + cumsum(ABe)-ABe) %>% 
+  ungroup %>% select(ABT) %>% unlist -> Lubia_P$ABT
+
+```
+
+### Rebollo - g {-}
+
+
+```{r, message=F, warning=F}
+
+#Calculo de AB para cada arbol
+Lubia_H_pred_rebollo %>% 
+  mutate(AreaBasimetrica = g(`DIAM MED`)) %>% 
+  mutate(AreaBasimetrica_e = ifelse(`TIPO MASA`=="E", AreaBasimetrica, NA)) -> Lubia_H_pred_rebollo
+
+#ABac
+Lubia_H_pred_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(ABac = sum(`AreaBasimetrica`, na.rm = T)) %>% 
+  ungroup %>% select(ABac) %>% unlist -> Lubia_R$ABac
+
+#ABdc
+Lubia_H_pred_rebollo %>% 
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(ABdc = sum(AreaBasimetrica, na.rm = T)) %>% 
+  ungroup %>% select(ABdc) %>% unlist -> Lubia_R$ABdc
+
+#ABe
+Lubia_H_pred_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(ABe = sum(AreaBasimetrica, na.rm = T)) %>% 
+  ungroup %>% select(ABe) %>% unlist -> Lubia_R$ABe
+
+#ABac, ABdc, ABe
+Lubia_R %>% mutate(ABac = ABac/Superficie, 
+                      ABdc = ABdc/Superficie, 
+                      ABe = ABe/Superficie) -> Lubia_R
+
+#ABT
+Lubia_R %>% 
+  group_by(PARCELA) %>% 
+  mutate(ABT = ABac + cumsum(ABe)-ABe) %>% 
+  ungroup %>% select(ABT) %>% unlist -> Lubia_R$ABT
+
+
+```
+
+
+## Volumen {-}
+
+
+Para cada arbol calculé volumen mediante la formula.
+Despues tambien se calcularon Vac, Vdc, Ve, Vmac, Vmdc, Vme.
+
+$$V_{mac},V_{mdc},V_{me}={\sum_{}V_i}$$
+
+
+
+
+### Pino - v {-}
+
+El volumen de pino se calculó mediante la fórmula:
+
+$$V_{pino}=0.0004474*(d^{2.01474})*(h^{0.87153})$$
+
+
+```{r, message=F, warning=F}
+
+#Volumen
+#la funcción para calcular volumen de pino
+v_pino <- function(d,h){
+  vcc <- 0.0004474*(d^2.01474)*(h^0.87153)
+  vcc
+}
+
+#Calculo de volumen para cada arbol (solo para pino)
+Lubia_H_pred_pino %>% 
+  mutate(Volumen = v_pino(`DIAM MED`, Altura_def)/1000) %>% 
+  mutate(Volumen_e = ifelse(`TIPO MASA`=="E", Volumen, NA)) -> Lubia_H_pred_pino
+
+#Vac
+Lubia_H_pred_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Vac = sum(`Volumen`, na.rm = T)) %>% 
+  ungroup %>% select(Vac) %>% unlist -> Lubia_P$Vac
+
+#Vdc
+Lubia_H_pred_pino %>% 
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Vdc = sum(Volumen, na.rm = T)) %>% 
+  ungroup %>% select(Vdc) %>% unlist -> Lubia_P$Vdc
+
+#Ve
+Lubia_H_pred_pino %>%
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Ve = sum(Volumen_e, na.rm = T)) %>% 
+  ungroup %>% select(Ve) %>% unlist -> Lubia_P$Ve
+
+#Vac, Vdc, Ve
+Lubia_P %>% mutate(Vac = Vac/Superficie, 
+                      Vdc = Vdc/Superficie, 
+                      Ve = Ve/Superficie) -> Lubia_P
+
+#VT
+Lubia_P %>% 
+  group_by(PARCELA) %>% 
+  mutate(VT = Vac + cumsum(Ve)-Ve) %>% 
+  ungroup %>% select(VT) %>% unlist -> Lubia_P$VT
+
+#Vmac, Vmdc, Vme
+Lubia_P %>% mutate(Vmac = Vac/Nac, 
+                      Vmdc = Vdc/Ndc, 
+                      Vme = Ve/Ne) -> Lubia_P
+
+```
+
+### Rebollo - v {-}
+
+El volumen de rebollo se calculó mediante la fórmula:
+
+$$V_{rebollo}=0.0006176*(d^{2.41852})*(h^{0.39518})$$
+
+```{r, message=F, warning=F}
+
+#el volumen de rebollo calculé mediante la funccion
+v_rebollo <- function(d,h){
+  vcc <- 0.0006176*(d^2.41852)*(h^0.39518)
+  vcc 
+} 
+
+
+#Calculo de volumen para cada arbol
+Lubia_H_pred_rebollo %>% 
+  mutate(Volumen = v_rebollo(`DIAM MED`, Altura_def)/1000) %>% 
+  mutate(Volumen_e = ifelse(`TIPO MASA`=="E", Volumen, NA)) -> Lubia_H_pred_rebollo
+
+#Vac
+Lubia_H_pred_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Vac = sum(`Volumen`, na.rm = T)) %>% 
+  ungroup %>% select(Vac) %>% unlist -> Lubia_R$Vac
+
+#Vdc
+Lubia_H_pred_rebollo %>% 
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Vdc = sum(Volumen, na.rm = T)) %>% 
+  ungroup %>% select(Vdc) %>% unlist -> Lubia_R$Vdc
+
+#Ve
+Lubia_H_pred_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Ve = sum(Volumen_e, na.rm = T)) %>% 
+  ungroup %>% select(Ve) %>% unlist -> Lubia_R$Ve
+
+#Vac, Vdc, Ve
+Lubia_R %>% mutate(Vac = Vac/Superficie, 
+                   Vdc = Vdc/Superficie, 
+                   Ve = (Ve/Superficie)) -> Lubia_R
+
+#VT
+Lubia_R %>% 
+  group_by(PARCELA) %>% 
+  mutate(VT = Vac + cumsum(Ve)-Ve) %>% 
+  ungroup %>% select(VT) %>% unlist -> Lubia_R$VT
+
+#Vmac, Vmdc, Vme
+Lubia_R %>% mutate(Vmac = Vac/Nac, 
+                   Vmdc = Vdc/Ndc, 
+                   Vme = Ve/Ne) -> Lubia_R
+
+
+
+```
+
+
+
+## Biomasa {-}
+
+Tambien tenía que calcular biomasa total por parcela.
+Las formulas para Calculo de biomasa son tomados de articulos de Ricardo que se tratan de modelos de biomasa.
+
+### Biomasa de pino {-}
+
+```{r, message=F, warning=F}
+
+#biomasa, W
+#Pino maritimo
+W_s_pino <- function(d,h){
+  d <- d/10
+  x <- 0.0278*d^(2.115)*h^(0.618)
+  x
+} 
+Wb7_Wb27_pino <- function(d){
+  d <- d/10
+  x <- 0.000381* d^(3.141)
+  x
+} 
+
+Wb2_n_pino  <- function(d){
+  d <- d/10
+  x <- 0.0129 * d^(2.320)
+  x
+} 
+
+
+#Calculo de biomasa para cada arbol (solo para pino), tambien columna e
+#W_s_pino, biomasa de stem
+Lubia_H_pred_pino %>% 
+  mutate(Biomasa_s = W_s_pino(`DIAM MED`, Altura_def)) %>% 
+  mutate(Biomasa_s_e = ifelse(`TIPO MASA`=="E", Biomasa_s, NA)) -> Lubia_H_pred_pino
+
+#Wb7_Wb27_pino, biomasa de ramas 7
+Lubia_H_pred_pino %>% 
+  mutate(Biomasa_b7_b27 = Wb7_Wb27_pino(`DIAM MED`)) %>%  
+  mutate(Biomasa_b7_b27_e = ifelse(`TIPO MASA`=="E", Biomasa_b7_b27, NA)) -> Lubia_H_pred_pino
+
+#Wb2_n_pino, biomasa de ramas, ramitas
+Lubia_H_pred_pino %>% 
+  mutate(Biomasa_b2_n = Wb2_n_pino(`DIAM MED`)) %>% 
+  mutate(Biomasa_b2_n_e = ifelse(`TIPO MASA`=="E", Biomasa_b2_n, NA)) -> Lubia_H_pred_pino
+
+
+#Calculo de biomasa total para pino
+#biomasa de stem
+#Wac_s
+Lubia_H_pred_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Wac = sum(Biomasa_s, na.rm = T)) %>% 
+  ungroup %>% select(Wac) %>% unlist -> Lubia_P$Wac
+
+#Wdc_s
+Lubia_H_pred_pino %>% 
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Wdc = sum(Biomasa_s, na.rm = T)) %>% 
+  ungroup %>% select(Wdc) %>% unlist -> Lubia_P$Wdc
+
+#We_s
+Lubia_H_pred_pino %>%  
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(We = sum(Biomasa_s_e, na.rm = T)) %>% 
+  ungroup %>% select(We) %>% unlist -> Lubia_P$We
+
+#biomasa de ramas
+#Wac_b7_b27
+Lubia_H_pred_pino%>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Wac_b7_b27 = sum(Biomasa_b7_b27, na.rm = T)) %>% 
+  ungroup %>% select(Wac_b7_b27) %>% unlist -> Lubia_P$Wac_b7_b27
+
+#Wdc_b7_b27
+Lubia_H_pred_pino %>%
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Wdc_b7_b27 = sum(Biomasa_b7_b27, na.rm = T)) %>% 
+  ungroup %>% select(Wdc_b7_b27) %>% unlist -> Lubia_P$Wdc_b7_b27
+
+#We_b7_b27
+Lubia_H_pred_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(We_b7_b27 = sum(Biomasa_b7_b27_e, na.rm = T)) %>% 
+  ungroup %>% select(We_b7_b27) %>% unlist -> Lubia_P$We_b7_b27
+
+#Wac_b2_n
+Lubia_H_pred_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Wac_b2_n = sum(Biomasa_b2_n, na.rm = T)) %>% 
+  ungroup %>% select(Wac_b2_n) %>% unlist -> Lubia_P$Wac_b2_n
+
+#Wdc_b2_n
+Lubia_H_pred_pino %>% 
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Wdc_b2_n = sum(Biomasa_b2_n, na.rm = T)) %>% 
+  ungroup %>% select(Wdc_b2_n) %>% unlist -> Lubia_P$Wdc_b2_n
+
+#We_b2_n
+Lubia_H_pred_pino %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(We_b2_n = sum(Biomasa_b2_n_e, na.rm = T)) %>% 
+  ungroup %>% select(We_b2_n) %>% unlist -> Lubia_P$We_b2_n
+
+#WT
+Lubia_P %>% 
+  mutate(WacT = sum(Wac, Wac_b7_b27, Wac_b2_n),
+         WdcT = sum(Wdc, Wdc_b7_b27, Wdc_b2_n),
+         WeT = sum(We, We_b7_b27, We_b2_n)) -> Lubia_P
+
+```
+
+
+### Biomasa roble rebollo {-}
+
+
+```{r, message=F, warning=F}
+
+#biomasa
+#roble rebollo
+Ws_Wb7_rebollo <- function(d,h) {
+  d <- d/10
+  x <- 0.0261 * d^2 * h
+  x
+} 
+
+Wb2_7_rebollo <- function(d,h) {
+  d <- d/10
+  x <- -0.0260 * d^2 + 0.536 * h + 0.00538 * d^2 * h
+  x
+} 
+
+Wb2_rebollo <- function(d,h) {
+  d <- d/10
+  x <-  0.898 * d - 0.445 * h
+  x
+} 
+
+#Calculo de biomasa para cada arbol (solo para rebollo)
+#Ws_Wb7_rebollo, biomasa de stem y ramas hasta 7cm
+Lubia_H_pred_rebollo %>% 
+  mutate(Biomasa_s_7 = Ws_Wb7_rebollo(`DIAM MED`, Altura_def)) %>% 
+  mutate(Biomasa_s_7_e = ifelse(`TIPO MASA`=="E", Biomasa_s_7, NA)) -> Lubia_H_pred_rebollo
+
+#Wb2_7_rebollo, biomasa de ramas 2-7
+Lubia_H_pred_rebollo %>% 
+  mutate(Biomasa_b2_7 = Wb2_7_rebollo(`DIAM MED`, Altura_def)) %>% 
+  mutate(Biomasa_b2_7_e = ifelse(`TIPO MASA`=="E", Biomasa_b2_7, NA)) -> Lubia_H_pred_rebollo
+
+#Wb2_rebollo, biomasa de ramas, ramitas
+Lubia_H_pred_rebollo %>% 
+  mutate(Biomasa_b2_n = Wb2_rebollo(`DIAM MED`, Altura_def)) %>% 
+  mutate(Biomasa_b2_n_e = ifelse(`TIPO MASA`=="E", Biomasa_b2_n, NA)) -> Lubia_H_pred_rebollo
+
+
+#Calculo de biomasa total para rebollo
+#biomasa de stem
+#Wac_s_7
+Lubia_H_pred_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Wac = sum(Biomasa_s_7, na.rm = T)) %>% 
+  ungroup %>% select(Wac) %>% unlist -> Lubia_R$Wac_s_7
+
+#Wdc_s_7
+Lubia_H_pred_rebollo %>% 
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Wdc = sum(Biomasa_s_7, na.rm = T)) %>% 
+  ungroup %>% select(Wdc) %>% unlist -> Lubia_R$Wdc_s_7
+
+#We_s_7
+Lubia_H_pred_rebollo %>%  
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(We = sum(Biomasa_s_7_e, na.rm = T)) %>% 
+  ungroup %>% select(We) %>% unlist -> Lubia_R$We_s_7
+
+#biomasa de ramas
+#Wac_b2_7
+Lubia_H_pred_rebollo%>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Wac_b2_7 = sum(Biomasa_b2_7, na.rm = T)) %>% 
+  ungroup %>% select(Wac_b2_7) %>% unlist -> Lubia_R$Wac_b2_7
+#Wdc_b2_7
+Lubia_H_pred_rebollo %>% 
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Wdc_b2_7 = sum(Biomasa_b2_7, na.rm = T)) %>% 
+  ungroup %>% select(Wdc_b2_7) %>% unlist -> Lubia_R$Wdc_b2_7
+
+#We_b2_7
+Lubia_H_pred_rebollo %>%
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(We_b2_7 = sum(Biomasa_b2_7_e, na.rm = T)) %>% 
+  ungroup %>% select(We_b2_7) %>% unlist -> Lubia_R$We_b2_7
+
+#Wac_b2_n
+Lubia_H_pred_rebollo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Wac_b2_n = sum(Biomasa_b2_n, na.rm = T)) %>% 
+  ungroup %>% select(Wac_b2_n) %>% unlist -> Lubia_R$Wac_b2_n
+#Wdc_b2_n
+Lubia_H_pred_rebollo %>% 
+  filter(is.na(`TIPO MASA`)==T|`TIPO MASA`=="N") %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Wdc_b2_n = sum(Biomasa_b2_n, na.rm = T)) %>% 
+  ungroup %>% select(Wdc_b2_n) %>% unlist -> Lubia_R$Wdc_b2_n
+
+#We_b2_n
+Lubia_H_pred_rebollo %>%  
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(We_b2_n = sum(Biomasa_b2_n_e, na.rm = T)) %>% 
+  ungroup %>% select(We_b2_n) %>% unlist -> Lubia_R$We_b2_n
+
+#WT
+Lubia_R %>% 
+  mutate(WacT = sum(Wac_s_7, Wac_b2_7, Wac_b2_n),
+         WdcT = sum(Wdc_s_7, Wdc_b2_7, Wdc_b2_n),
+         WeT = sum(We_s_7, We_b2_7, We_b2_n)) -> Lubia_R
+
+```
+
+# Los resultados: Las tablas finales {-}
+
+Entonces la tablas de estadisticas calculadas de pino y de rebollo para todas las parcelas estoy mostrando aquí.
+
+
+```{r, message=F, warning=F, echo=F}
+
+#una limpieza poquita
+Lubia_P[is.na(Lubia_P)] <- 0
+Lubia_P %>% round(3) -> Lubia_P
+
+Lubia_R[is.na(Lubia_R)] <- 0
+Lubia_R %>% round(3) -> Lubia_R
+
+#añadir de tratamiento a pino
+Lubia_H_pred_pino %>% 
+  group_by(PARCELA, INVENTARIO, TRATAMIENTO) %>% 
+  summarise %>% ungroup %>% 
+  select(TRATAMIENTO) %>%
+  add_column(Lubia_P,., .after = "INVENTARIO") -> Lubia_P
+
+#añadir de tratamiento a rebollo
+Lubia_H_pred_rebollo %>% 
+  group_by(PARCELA, INVENTARIO, TRATAMIENTO) %>% 
+  summarise %>% ungroup %>% 
+  select(TRATAMIENTO) %>%
+  add_column(Lubia_R,., .after = "INVENTARIO") -> Lubia_R
+
+#añadir de sitio y especie a pino
+Lubia_P %>% add_column(Sitio = "Lubia", Especie = "Pinus pinaster", .before = "PARCELA") -> Lubia_P
+
+#añadir de sitio y especie a rebollo
+Lubia_R %>% add_column(Sitio = "Lubia", Especie = "Quercus pirenaica", .before = "PARCELA") -> Lubia_R
+
+source("Lubia_pino_3_tablas.r")
+
+k11
+k12
+k13
+
+k21
+k22
+k23
+
+k31
+k32
+k33
+
+k41
+k42
+k43
+
+k51
+k52
+k53
+
+k61
+k62
+k63
+
+k71
+k72
+k73
+
+k81
+k82
+k83
+
+k91
+k92
+k93
+
+source("Lubia_rebollo_3_tablas.r")
+
+k11
+k12
+k13
+
+k21
+k22
+k23
+
+k31
+k32
+k33
+
+k41
+k42
+k43
+
+k51
+k52
+k53
+
+k61
+k62
+k63
+
+k71
+k72
+k73
+
+k81
+k82
+k83
+
+k91
+k92
+k93
+
+#write_csv2(Lubia_P, "Lubia_P.csv")
+#write_csv2(Lubia_R, "Lubia_R.csv")
+
+#write_csv2(Lubia_H_pred_pino, "Lubia_H_pred_pino.csv")
+#write_csv2(Lubia_H_pred_rebollo, "Lubia_H_pred_rebollo.csv")
+
+
+
+```
+
+

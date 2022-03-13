@@ -1,0 +1,624 @@
+---
+title: "Análisis de inventarios de Sanpablo y Lubia"
+author: "Nikola Gersak"
+date: "13/4/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(repos = "http://cran.us.r-project.org")
+#install packages si todavia no están en ordenador
+#install.packages("tidyverse")
+#install.packages("broom")
+#install.packages("kableExtra")
+#install.packages("sjPlot")
+
+#cargar paquetes que han estado instalados
+library(tidyverse)
+library(broom)
+library(kableExtra)
+library(sjPlot)
+library(ggpubr)
+library(car)
+library(xtable)
+library(gridExtra)
+options(width = 60)
+options(knitr.kable.NA = '')
+
+```
+
+```{css, echo=F}
+
+#ajustes de estilo de texto de html archivo
+p{
+  text-align: justify;
+  fig.align: center;
+}
+
+h1, h2, h3{
+  text-align: center;
+}
+
+.table-wrapper caption {
+color: black;
+text-align: center;
+font-family: Arial;
+font-weight: bold;
+font-size: xx-large;
+}
+
+```
+
+Cargué las tablas que había calculado en los archivos de calculo. Además, las pegué juntos.
+
+```{r cargar de los datos, message=F, warning=F}
+#Pinos y rebollos de San Pablo
+Sanpablo_P <- read_csv2("Sanpablo_P.csv")
+Sanpablo_R <- read_csv2("Sanpablo_R.csv")
+
+#Pinos y rebollos de Lubia
+Lubia_P <- read_csv2("Lubia_P.csv")
+Lubia_R <- read_csv2("Lubia_R.csv")
+
+#pegacion de tablas
+Sanpablo <- full_join(Sanpablo_P, Sanpablo_R)
+Lubia <- full_join(Lubia_P, Lubia_R)
+
+#añadir la edad a pinos
+#Pinos$EDAD <- rep(c(36,40,44),18)
+
+```
+
+
+```{r, eval=F, echo=F}
+#tabla para articulo
+#lubia
+Lubia %>% group_by(Sitio, Especie, TRATAMIENTO) %>% summarise_all(mean) %>% select(Tratamiento = TRATAMIENTO, Superficie, Nac, Ndc, Dgac, Dgdc, Hoac, Hgac, Hgdc, ABac, ABdc) %>% mutate(across(3:11,round,1)) %>% mutate(Superficie = round(Superficie, 3)) -> Lubia_articulo
+
+#Sanpablo
+Sanpablo %>% group_by(Sitio, Especie, TRATAMIENTO) %>% summarise_all(mean) %>% select(Tratamiento = TRATAMIENTO, Superficie, Nac, Ndc, Dgac, Dgdc, Hoac, Hgac, Hgdc, ABac, ABdc) %>% mutate(across(3:11,round,1)) %>% mutate(Superficie = round(Superficie, 3)) -> Sanpablo_articulo
+
+#write_csv2(Lubia_articulo, "Lubia_articulo.csv")
+#write_csv2(Sanpablo_articulo, "Sanpablo_articulo.csv")
+
+```
+
+
+# Primero {-}
+
+## Calculo de sumas de datos {-}
+
+```{r calculo de sumas, message=F, warning=F}
+
+#calculo de sumas de algunas variables de Pino y Rebollo
+Lubia %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Sitio = Sitio,
+            Especie = "P. pinaster + Q. pirenaica",
+            TRATAMIENTO = TRATAMIENTO,
+            Nac = sum(Nac),
+            Ndc = sum(Ndc),
+            Ne = sum(Ne),
+            ABac = sum(ABac),
+            ABdc = sum(ABdc),
+            ABe = sum(ABe),
+            ABT = sum(ABT),
+            Vac = sum(Vac),
+            Vdc = sum(Vdc),
+            Ve = sum(Ve),
+            VT = sum(VT),
+            WacT = sum(WacT),
+            WdcT = sum(WdcT),
+            WeT = sum(WeT)) %>%
+  distinct(PARCELA, INVENTARIO, .keep_all = T) %>% 
+  full_join(Lubia, .) -> Lubia
+
+Sanpablo %>% 
+  group_by(PARCELA, INVENTARIO) %>% 
+  summarise(Sitio = Sitio,
+            Especie = "P. pinaster + Q. pirenaica",
+            TRATAMIENTO = TRATAMIENTO,
+            Nac = sum(Nac),
+            Ndc = sum(Ndc),
+            Ne = sum(Ne),
+            ABac = sum(ABac),
+            ABdc = sum(ABdc),
+            ABe = sum(ABe),
+            ABT = sum(ABT),
+            Vac = sum(Vac),
+            Vdc = sum(Vdc),
+            Ve = sum(Ve),
+            VT = sum(VT),
+            WacT = sum(WacT),
+            WdcT = sum(WdcT),
+            WeT = sum(WeT)) %>%
+  distinct(PARCELA, INVENTARIO, .keep_all = T) %>% 
+  full_join(Sanpablo, .) -> Sanpablo
+
+#todos juntos
+SP_L <- full_join(Sanpablo, Lubia)
+
+```
+
+
+# Segundo {-}
+
+## Gráfica {-}
+
+### Evolucion de variables {-}
+
+
+```{r, message=F, warning=F, echo=F}
+
+#convertir algunas variables en factores
+Sanpablo$PARCELA <- as.factor(Sanpablo$PARCELA)
+Lubia$PARCELA <- as.factor(Lubia$PARCELA)
+
+#variables cuales pongo en bucles de graficas
+sitios <- c("Lubia", "Sanpablo")
+arboles <- c("Pinus pinaster", "Quercus pirenaica","P. pinaster + Q. pirenaica")
+#variables de cuales se muestra evolucion
+variable <- c("Nac","ABac", "VT", "WdcT", "Dodc", "Hodc")
+
+#source("Analisis_1_graficas_evolucion_de_variables.r")
+
+```
+
+
+
+
+# Tercero {-}
+
+## Calculo de incrementos {-}
+
+
+```{r incremento, warning=F, message=F}
+
+#incremento de Dg, H, V, AB, W
+#vectores de ayuda
+ac <- seq(1,81,3)
+dc <- seq(3,81,3)
+
+#la tabla primaria
+Lubia_incrementos <- tibble(.rows = 54)
+Lubia_incrementos$Especie <- rep(c("Pinus pinaster", "Quercus pirenaica", "P. pinaster + Q. pirenaica"), each=18)
+Lubia_incrementos$Parcela <- rep(1:9,each=2, times=3)
+Lubia_incrementos$Inventario <- rep(c("1-2","2-3"), times = 27)
+Lubia_incrementos$Tratamiento <- rep(c("D","E","A","E","D","A","A","E","D"), each=2, times=3)
+
+#Dg
+Lubia %>% select(Dgac) %>% unlist %>% .[-ac] -> Lubia_incrementos$Dgac
+Lubia %>% select(Dgdc) %>% unlist %>% .[-dc] -> Lubia_incrementos$Dgdc
+Lubia_incrementos %>% mutate(Dgi = Dgac - Dgdc) -> Lubia_incrementos
+
+#H
+Lubia %>% select(Hgac) %>% unlist %>% .[-ac] -> Lubia_incrementos$Hac
+Lubia %>% select(Hgdc) %>% unlist %>% .[-dc] -> Lubia_incrementos$Hdc
+Lubia_incrementos %>% mutate(Hi = Hac - Hdc) -> Lubia_incrementos
+
+#AB
+Lubia %>% select(ABac) %>% unlist %>% .[-ac] -> Lubia_incrementos$ABac
+Lubia %>% select(ABdc) %>% unlist %>% .[-dc] -> Lubia_incrementos$ABdc
+Lubia_incrementos %>% mutate(ABi = ABac - ABdc) -> Lubia_incrementos
+
+#V
+Lubia %>% select(Vac) %>% unlist %>% .[-ac] -> Lubia_incrementos$Vac
+Lubia %>% select(Vdc) %>% unlist %>% .[-dc] -> Lubia_incrementos$Vdc
+Lubia_incrementos %>% mutate(Vi = Vac - Vdc) -> Lubia_incrementos
+
+#W
+Lubia %>% select(WacT) %>% unlist %>% .[-ac] -> Lubia_incrementos$WacT
+Lubia %>% select(WdcT) %>% unlist %>% .[-dc] -> Lubia_incrementos$WdcT
+Lubia_incrementos %>% mutate(Wi = WacT - WdcT) -> Lubia_incrementos
+
+#limpio final
+Lubia_incrementos %>% transmute(Sitio = "Lubia", Especie, Parcela, Inventario, Tratamiento, Dgi, Hi, ABi, Vi, Wi) -> Lubia_incrementos
+
+#Sanpablo
+#la tabla primaria
+Sanpablo_incrementos <- tibble(.rows = 54)
+Sanpablo_incrementos$Especie <- rep(c("Pinus pinaster", "Quercus pirenaica", "P. pinaster + Q. pirenaica"), each=18)
+Sanpablo_incrementos$Parcela <- rep(1:9,each=2, times=3)
+Sanpablo_incrementos$Inventario <- rep(c("1-2","2-3"), times = 27)
+Sanpablo_incrementos$Tratamiento <- rep(c("E","D","A","D","E","A","D","A","E"), each=2, times=3)
+
+#Dg
+Sanpablo %>% select(Dgac) %>% unlist %>% .[-ac] -> Sanpablo_incrementos$Dgac
+Sanpablo %>% select(Dgdc) %>% unlist %>% .[-dc] -> Sanpablo_incrementos$Dgdc
+Sanpablo_incrementos %>% mutate(Dgi = Dgac - Dgdc) -> Sanpablo_incrementos
+
+#H
+Sanpablo %>% select(Hgac) %>% unlist %>% .[-ac] -> Sanpablo_incrementos$Hac
+Sanpablo %>% select(Hgdc) %>% unlist %>% .[-dc] -> Sanpablo_incrementos$Hdc
+Sanpablo_incrementos %>% mutate(Hi = Hac - Hdc) -> Sanpablo_incrementos
+
+#AB
+Sanpablo %>% select(ABac) %>% unlist %>% .[-ac] -> Sanpablo_incrementos$ABac
+Sanpablo %>% select(ABdc) %>% unlist %>% .[-dc] -> Sanpablo_incrementos$ABdc
+Sanpablo_incrementos %>% mutate(ABi = ABac - ABdc) -> Sanpablo_incrementos
+
+#V
+Sanpablo %>% select(Vac) %>% unlist %>% .[-ac] -> Sanpablo_incrementos$Vac
+Sanpablo %>% select(Vdc) %>% unlist %>% .[-dc] -> Sanpablo_incrementos$Vdc
+Sanpablo_incrementos %>% mutate(Vi = Vac - Vdc) -> Sanpablo_incrementos
+
+#W
+Sanpablo %>% select(WacT) %>% unlist %>% .[-ac] -> Sanpablo_incrementos$WacT
+Sanpablo %>% select(WdcT) %>% unlist %>% .[-dc] -> Sanpablo_incrementos$WdcT
+Sanpablo_incrementos %>% mutate(Wi = WacT - WdcT) -> Sanpablo_incrementos
+
+#limpio final
+Sanpablo_incrementos %>% transmute(Sitio = "Sanpablo", Especie, Parcela, Inventario, Tratamiento, Dgi, Hi, ABi, Vi, Wi) -> Sanpablo_incrementos
+
+```
+
+
+```{r factores, message=F, warning=F}
+
+#necesito convertir algunas variables a factores antes de hacer modelos
+Sanpablo$TRATAMIENTO <- as.factor(Sanpablo$TRATAMIENTO)
+Sanpablo$INVENTARIO <- as.factor(Sanpablo$INVENTARIO)
+
+Lubia$TRATAMIENTO <- as.factor(Lubia$TRATAMIENTO)
+Lubia$INVENTARIO <- as.factor(Lubia$INVENTARIO)
+
+```
+
+# Analisis {-}
+
+
+```{r boxplot, message=F, warning=F, echo=F}
+
+#codigo de boxplots
+
+#bucles que hacen boxplots
+#source("Analisis_2_graficas_boxplots.r")
+
+```
+
+
+## One-way anova, tukey test, barley test y boxplots de inventario {-}
+
+
+```{r analisis de inventarios, message=F, warning=F,echo=F, results = 'asis'}
+
+inventario <- c(1,2,3)
+#variables de inventario 1
+variable1 <- c("Nac","Dgac","Hgac", "ABac", "Vac", "WacT")
+#variables de inventarios 2 y 3
+variable23 <- c("Ndc","Dgdc","Hgdc", "ABdc", "Vdc", "WdcT")
+
+#los vectores que necesito despues
+zpadj <- vector()
+ypval <- vector()
+xprf1 <- vector()
+
+
+#bucle de analisis
+for (s in sitios){
+  for (i in inventario){
+    for (a in arboles){
+      ifelse(i==1, variable <- variable1, variable <- variable23)
+      
+      for(b in variable){
+        if (a=="P. pinaster + Q. pirenaica"&&((b=="Dgac"|b=="Hgac")|(b=="Dgdc"|b=="Hgdc"))) next
+        
+      
+        data <- filter(get(s), INVENTARIO==i, Especie==a)
+
+        #analisis de la varianza, para ver si el tratamiento es significativo
+        anova_one_way <- aov(get(b)~TRATAMIENTO, data = data)
+        x <- summary(anova_one_way)
+
+        xtable(x) %>%
+          kable(caption = str_c("<center><strong>", s,i,", " ,a,", ", b, " ~ TRATAMIENTO", " anova", "<strong><center>")) %>%  
+          kable_styling(full_width = T) %>% print
+      
+      #comparación de medias por pares
+        x <- TukeyHSD(anova_one_way)
+        x$TRATAMIENTO -> z
+        z %>% as.data.frame() -> z
+        z %>% 
+        kable(caption = str_c("<center><strong>", s,i,", " ,a,", ", b, " ~ TRATAMIENTO", " Tukey test", "<strong><center>")) %>% 
+          column_spec(5, background = ifelse(z$`p adj` < 0.05001, "red", z$`p adj`)) %>% kable_styling(full_width = T) %>% print
+       
+        #Bartlett test of homogeneity of variances
+        x <- bartlett.test(get(b) ~ TRATAMIENTO, data = data)
+        x[1:3] %>% unlist %>% 
+          data.frame() %>% 
+          rownames_to_column() %>% 
+          pivot_wider(names_from = rowname, values_from=".") -> y
+        
+        y %>% kable(caption = str_c("<center><strong>", s,i,", " ,a,", ", b, " ~ TRATAMIENTO", " Bartlett test", "<strong><center>"))  %>% column_spec(3,background = ifelse(y$p.value < 0.05001, "red", y$p.value)) %>%  kable_styling(full_width = T) %>% print
+        
+        #boxplot
+         g <- get(s) %>% 
+        filter(Especie == a) %>% 
+        filter(INVENTARIO==i) %>% 
+        ggplot(aes(x = TRATAMIENTO, 
+                   y = get(b))) +
+        geom_boxplot() +
+        geom_jitter(shape = 15,
+                    color = "steelblue",
+                    position = position_jitter(0.21)) +
+        theme_classic()+
+        ylab(b)+
+        theme(plot.title = element_text(hjust = 0.5)) +
+        ggtitle(label = str_c(s,", ",a, ", ", b, "~ Tratamiento, inventario ", i))
+      
+        print(g)
+
+      }  
+    }
+  }
+}
+
+
+
+```
+
+
+
+## Grafica qqplot de residuales de inventarios {-}
+
+```{r qq grafica, message=F, warning=F, results='asis', echo=F, eval=F}
+
+#bucle de grafica qq plot
+for (s in sitios){
+  for (i in inventario){
+    for (a in arboles){
+      ifelse(i==1, variable <- variable1, variable <- variable23)
+      
+      for(b in variable){
+        if (a=="P. pinaster + Q. pirenaica"&&((b=="Dgac"|b=="Hgac")|(b=="Dgdc"|b=="Hgdc"))) next
+        
+        data <- filter(get(s), INVENTARIO==i, Especie==a)
+        
+        #Create a QQ plot of residuals
+        model  <- lm(get(b) ~ TRATAMIENTO, data = data)
+        g <- ggqqplot(residuals(model), 
+                      title = str_c(s, a, b, "~ TRATAMIENTO, Inventario",i, sep = " "))
+        print(g)
+        plot(model, 1)
+        
+      }
+    }
+  }
+}
+
+```
+
+
+
+## Analisis de incrementos {-}
+
+```{r analisis de incrementos, results='asis', echo=F}
+
+variable <- c("Dgi", "Hi", "ABi", "Vi", "Wi")
+sitios_i <- c("Sanpablo_incrementos", "Lubia_incrementos")
+inventario <- c("1-2","2-3")
+
+#bucle de analisis
+for (s in sitios_i){
+  for (i in inventario){
+    for (a in arboles){
+      for(b in variable){
+        if (a=="P. pinaster + Q. pirenaica"&&((b=="Dgi"|b=="Hi"))) next
+        
+        data <- filter(get(s), Inventario==i, Especie==a)
+  
+      anova_one_way <- aov(get(b)~Tratamiento, data = data)
+      x <- summary(anova_one_way)
+      #vector 1
+      x <- x[[1]]
+      xprf1 <- c(xprf1, x$`Pr(>F)`[1])
+  
+      xtable(x) %>%
+            kable(caption = str_c("<center><strong>", s,i,", " ,a,", ", b, " ~ TRATAMIENTO", " anova", "<strong><center>")) %>%  
+          kable_styling(full_width = T) %>% print
+      
+      #comparación de medias por pares
+        x <- TukeyHSD(anova_one_way)
+        x$Tratamiento -> z
+        z %>% as.data.frame() -> z
+        #vector2
+        zpadj <- c(zpadj,z$`p adj`)
+        
+        z %>% 
+        kable(caption = str_c("<center><strong>", s,i,", " ,a,", ", b, " ~ TRATAMIENTO", " Tukey test", "<strong><center>")) %>% 
+          column_spec(5, background = ifelse(z$`p adj` < 0.05001, "red", z$`p adj`)) %>% kable_styling(full_width = T) %>% print
+        
+       
+        #Bartlett test of homogeneity of variances
+        x <- bartlett.test(get(b) ~ Tratamiento, data = data)
+        x[1:3] %>% unlist %>% 
+          data.frame() %>% 
+          rownames_to_column() %>% 
+          pivot_wider(names_from = rowname, values_from=".") -> y
+        #vector 3        
+        ypval <- c(ypval, y$p.value)
+
+        
+        y %>% kable(caption = str_c("<center><strong>", s,i,", " ,a,", ", b, " ~ Tratamiento", " Bartlett test", "<strong><center>"))  %>% column_spec(3,background = ifelse(y$p.value < 0.05001, "red", y$p.value)) %>%  kable_styling(full_width = T) %>% print
+      
+      }
+    }
+  }
+}
+
+
+
+```
+
+
+# Tablas de valores de analisis {-}
+
+```{r, echo=F, warning=F, message=F}
+
+#aqui se repiten bucles una vez mas para guardar parametros de analisis en variable y imprimir luego en tabla
+#inventarios primero
+
+inventario <- c(1,2,3)
+#variables de inventario 1
+variable1 <- c("Nac","Dgac","Hgac", "ABac", "Vac", "WacT")
+#variables de inventarios 2 y 3
+variable23 <- c("Ndc","Dgdc","Hgdc", "ABdc", "Vdc", "WdcT")
+
+#los vectores que necesito despues, en buckle
+zpadj <- vector()
+ypval <- vector()
+xprf1 <- vector()
+
+#bucle de analisis
+for (s in sitios){
+  for (i in inventario){
+    for (a in arboles){
+      ifelse(i==1, variable <- variable1, variable <- variable23)
+      
+      for(b in variable){
+        if (a=="P. pinaster + Q. pirenaica"&&((b=="Dgac"|b=="Hgac")|(b=="Dgdc"|b=="Hgdc"))) next
+        
+      
+        data <- filter(get(s), INVENTARIO==i, Especie==a)
+  
+      anova_one_way <- aov(get(b)~TRATAMIENTO, data = data)
+      x <- summary(anova_one_way)
+      #vector 1
+      x <- x[[1]]
+      xprf1 <- c(xprf1, x$`Pr(>F)`[1])
+      
+      #comparación de medias por pares
+        x <- TukeyHSD(anova_one_way)
+        x$TRATAMIENTO -> z
+        z %>% as.data.frame() -> z
+        #vector2
+        zpadj <- c(zpadj,z$`p adj`)
+      
+       
+        #Bartlett test of homogeneity of variances
+        x <- bartlett.test(get(b) ~ TRATAMIENTO, data = data)
+        x[1:3] %>% unlist %>% 
+          data.frame() %>% 
+          rownames_to_column() %>% 
+          pivot_wider(names_from = rowname, values_from=".") -> y
+        #vector 3        
+        ypval <- c(ypval, y$p.value)
+
+      }
+    }
+  }
+}
+
+#creacion de tabla de suma de valores de analisis
+analisis_sum_inventarios <- tibble(.rows = 288)
+analisis_sum_inventarios$sitio <- rep(sitios, each=144)
+analisis_sum_inventarios$inventario <- rep(inventario, each=48, times=2)
+analisis_sum_inventarios$arboles <- rep(c(rep(c("Pinus pinaster","Quercus pirenaica"), each=18),rep("P. pinaster + Q. pirenaica", each=12)),times=6)
+
+analisis_sum_inventarios$variable <- rep(c(rep(variable1,each=3,times=2), rep(c("Nac", "ABac", "Vac","WacT"),each=3), rep(c(rep(variable23,each=3,times=2), rep(c("Ndc", "ABdc", "Vdc", "WdcT"),each=3)),times=2)), times=2)
+
+analisis_sum_inventarios$anova_p <- rep(c(xprf1), each=3)
+analisis_sum_inventarios$tukey_variable <- rep(c("D-A", "E-A", "E-D"), times = 96)
+analisis_sum_inventarios$tukey_p <- zpadj
+analisis_sum_inventarios$bartlett_p <- rep(c(ypval), each=3)
+
+
+#otra vez, reset de vectores
+zpadj <- vector()
+ypval <- vector()
+xprf1 <- vector()
+
+variable <- c("Dgi", "Hi", "ABi", "Vi", "Wi")
+sitios_i <- c("Sanpablo_incrementos", "Lubia_incrementos")
+inventario <- c("1-2","2-3")
+
+#bucle de analisis de incrementos
+for (s in sitios_i){
+  for (i in inventario){
+    for (a in arboles){
+      for(b in variable){
+        if (a=="P. pinaster + Q. pirenaica"&&((b=="Dgi"|b=="Hi"))) next
+        
+        data <- filter(get(s), Inventario==i, Especie==a)
+  
+      anova_one_way <- aov(get(b)~Tratamiento, data = data)
+      x <- summary(anova_one_way)
+      #vector 1
+      x <- x[[1]]
+      xprf1 <- c(xprf1, x$`Pr(>F)`[1])
+      
+      #comparación de medias por pares
+        x <- TukeyHSD(anova_one_way)
+        x$Tratamiento -> z
+        z %>% as.data.frame() -> z
+        #vector2
+        zpadj <- c(zpadj,z$`p adj`)
+      
+       
+        #Bartlett test of homogeneity of variances
+        x <- bartlett.test(get(b) ~ Tratamiento, data = data)
+        x[1:3] %>% unlist %>% 
+          data.frame() %>% 
+          rownames_to_column() %>% 
+          pivot_wider(names_from = rowname, values_from=".") -> y
+        #vector 3        
+        ypval <- c(ypval, y$p.value)
+
+      }
+    }
+  }
+}
+
+
+#creacion de tabla de suma de valores de analisis
+analisis_sum_incrementos <- tibble(.rows = 156)
+analisis_sum_incrementos$sitio <- rep(sitios_i, each=78)
+analisis_sum_incrementos$inventario <- rep(inventario, each=39, times=2)
+analisis_sum_incrementos$arboles <- rep(c(rep(c("Pinus pinaster","Quercus pirenaica"), each=15),rep("P. pinaster + Q. pirenaica", each=9)),times=4)
+analisis_sum_incrementos$variable <- rep(c(rep(variable, each=3, times=2), rep(c("ABi", "Vi", "Wi"), each=3)), times=4)
+
+analisis_sum_incrementos$anova_p <- rep(c(xprf1), each=3)
+analisis_sum_incrementos$tukey_variable <- rep(c("D-A", "E-A", "E-D"), times = 52)
+analisis_sum_incrementos$tukey_p <- zpadj
+analisis_sum_incrementos$bartlett_p <- rep(c(ypval), each=3)
+```
+
+
+```{r las tablas, echo=F}
+
+analisis_sum_inventarios %>% 
+  mutate_all(~cell_spec(.x, color = ifelse(.x < 0.05, "red"," black"))) %>%
+    kable(escape = F) %>%
+    kable_classic()
+
+
+analisis_sum_incrementos %>% 
+  mutate_all(~cell_spec(.x, color = ifelse(.x < 0.05, "red"," black"))) %>%
+    kable(escape = F) %>%
+    kable_classic()
+
+#write_csv2(analisis_sum_inventarios, "analisis_sum_inventarios.csv")
+#write_csv2(analisis_sum_incrementos, "analisis_sum_incrementos.csv")
+
+```
+
+## Grafica de relacion entre AB y V / W {-}
+
+```{r}
+
+Lubia_incrementos %>% 
+  filter(Especie=="Pinus pinaster") %>% 
+  ggplot(aes(x = ABi/max(ABi), 
+             y = Vi/max(Vi)))+
+  geom_point(aes(shape = Inventario))+
+  geom_smooth(formula = y~log(x),
+              method = lm, 
+              se = F)+
+  scale_x_reverse()+
+  theme_classic()
+
+```
+
+
